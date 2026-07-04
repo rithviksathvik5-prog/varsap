@@ -34,12 +34,20 @@ export async function sendTemplateMessage(opts: {
     template: {
       name: opts.templateName,
       language: { code: opts.templateLang },
-      components: [
-        {
-          type: "body",
-          parameters: [{ type: "text", text: opts.customerName || "there" }],
-        },
-      ],
+      // Meta's built-in "hello_world" sample template takes no variables;
+      // sending a body parameter for it triggers a #132000 param-count error.
+      ...(opts.templateName === "hello_world"
+        ? {}
+        : {
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: opts.customerName || "there" },
+                ],
+              },
+            ],
+          }),
     },
   };
 
