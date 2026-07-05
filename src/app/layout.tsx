@@ -34,6 +34,12 @@ export default async function RootLayout({
                 >
                   New Campaign
                 </Link>
+                <Link
+                  href="/templates"
+                  className="opacity-80 hover:opacity-100"
+                >
+                  Templates
+                </Link>
                 <span className="ml-auto opacity-60 hidden sm:inline">
                   {session.user.email}
                 </span>
