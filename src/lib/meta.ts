@@ -10,7 +10,7 @@ export interface SendResult {
 
 /**
  * Sends an approved WhatsApp template message via the Meta Cloud API.
- * The template's {{1}} variable receives the customer's name.
+ * The template's {{name}} variable receives the customer's name.
  */
 export async function sendTemplateMessage(opts: {
   phone: string;
@@ -43,7 +43,11 @@ export async function sendTemplateMessage(opts: {
               {
                 type: "body",
                 parameters: [
-                  { type: "text", text: opts.customerName || "there" },
+                  {
+                    type: "text",
+                    parameter_name: "name",
+                    text: opts.customerName || "there",
+                  },
                 ],
               },
             ],
