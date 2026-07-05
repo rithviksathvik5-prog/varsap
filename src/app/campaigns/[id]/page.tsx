@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { formatInr } from "@/lib/cost";
+import { estimateCostInr, formatInr } from "@/lib/cost";
 
 interface CampaignDto {
   _id: string;
@@ -56,6 +56,7 @@ export default function CampaignDetailPage({
   const [counts, setCounts] = useState<Counts | null>(null);
   const [log, setLog] = useState<MessageDto[]>([]);
   const [error, setError] = useState("");
+  const [showFailedOnly, setShowFailedOnly] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -102,6 +103,14 @@ export default function CampaignDetailPage({
   const done = campaign.total - inFlight;
   const progress =
     campaign.total > 0 ? Math.round((done / campaign.total) * 100) : 0;
+  // Meta only bills messages it accepted — failed/opted-out/queued cost
+  // nothing, so actual spend counts sent + delivered + read.
+  const actualCost = estimateCostInr(
+    counts.sent + counts.delivered + counts.read
+  );
+  const visibleLog = showFailedOnly
+    ? log.filter((m) => m.status === "failed")
+    : log;
 
   return (
     <div className="mx-auto max-w-[1024px] px-5 py-12">
@@ -123,8 +132,11 @@ export default function CampaignDetailPage({
       <p className="mt-1 text-sm text-ink-muted-48">
         {campaign.total.toLocaleString("en-IN")} recipients · est.{" "}
         {formatInr(campaign.costEstimateInr)} ·{" "}
-        {campaign.skippedDuplicates + campaign.skippedBlocked} skipped at upload
-        · created by {campaign.createdBy}
+        <span className="font-semibold text-ink-muted-80">
+          {formatInr(actualCost)} spent so far
+        </span>{" "}
+        · {campaign.skippedDuplicates + campaign.skippedBlocked} skipped at
+        upload · created by {campaign.createdBy}
       </p>
 
       {campaign.status === "running" && (
@@ -148,11 +160,23 @@ export default function CampaignDetailPage({
       </div>
 
       <div className="mt-8 bg-white border border-hairline rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-divider-soft flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-divider-soft flex items-center justify-between flex-wrap gap-3">
           <span className="text-[21px] font-semibold">Message log</span>
-          <span className="text-xs text-ink-muted-48">
-            auto-refreshes every 5s
-          </span>
+          <div className="flex items-center gap-4">
+            {counts.failed > 0 && (
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showFailedOnly}
+                  onChange={(e) => setShowFailedOnly(e.target.checked)}
+                />
+                Show only failed ({counts.failed})
+              </label>
+            )}
+            <span className="text-xs text-ink-muted-48">
+              auto-refreshes every 5s
+            </span>
+          </div>
         </div>
         <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
           <table className="w-full text-left text-sm">
@@ -166,7 +190,7 @@ export default function CampaignDetailPage({
               </tr>
             </thead>
             <tbody>
-              {log.map((m) => (
+              {visibleLog.map((m) => (
                 <tr key={m._id} className="border-b border-divider-soft last:border-0">
                   <td className="px-6 py-2.5">{m.customerName || "—"}</td>
                   <td className="px-6 py-2.5 tabular-nums">{m.phone}</td>

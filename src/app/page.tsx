@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, isEmailAllowed } from "@/auth";
 import { getCollections, countByStatus, Campaign } from "@/lib/db";
-import { formatInr } from "@/lib/cost";
+import { estimateCostInr, formatInr } from "@/lib/cost";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +49,10 @@ export default async function DashboardPage() {
     counts.sent + counts.delivered + counts.read + counts.failed;
   const deliveryRate =
     attempted > 0 ? `${Math.round((reached / attempted) * 100)}%` : "—";
+  // Meta only bills accepted messages, so spend counts sent+delivered+read.
+  const totalSpent = estimateCostInr(
+    counts.sent + counts.delivered + counts.read
+  );
 
   return (
     <div className="mx-auto max-w-[1024px] px-5 py-12">
@@ -80,11 +84,15 @@ export default async function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className="mt-10 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="mt-10 grid grid-cols-2 md:grid-cols-5 gap-4">
             <StatTile label="Campaigns" value={campaigns.length} />
             <StatTile label="Delivery rate" value={deliveryRate} />
             <StatTile label="Messages read" value={counts.read} />
             <StatTile label="Opt-outs" value={counts.opted_out} />
+            <StatTile
+              label="Total spent (all campaigns)"
+              value={formatInr(totalSpent)}
+            />
           </div>
 
           <div className="mt-10 bg-white border border-hairline rounded-lg overflow-hidden">
