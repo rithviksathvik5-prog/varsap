@@ -41,6 +41,52 @@ export default function NewCampaignPage() {
   const [busy, setBusy] = useState<"" | "creating" | "dispatching">("");
   const [apiError, setApiError] = useState("");
   const [created, setCreated] = useState<CreateResult | null>(null);
+  const [dupNotice, setDupNotice] = useState("");
+
+  /**
+   * Heuristic nudge only: if a campaign with the same number of rows was
+   * created in the last 24h, this file was probably uploaded already.
+   * The (phone, orderId) unique index is what actually prevents
+   * double-sends — this just saves the employee a confusing "everything
+   * was skipped" moment later.
+   */
+  async function checkRecentDuplicate(rowCount: number) {
+    setDupNotice("");
+    try {
+      const res = await fetch("/api/campaigns", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const match = (json.campaigns || []).find(
+        (c: {
+          createdAt: string;
+          total: number;
+          skippedDuplicates: number;
+          skippedBlocked: number;
+        }) => {
+          const uploaded = c.total + c.skippedDuplicates + c.skippedBlocked;
+          return (
+            new Date(c.createdAt).getTime() >= dayAgo &&
+            (uploaded === rowCount || c.total === rowCount)
+          );
+        }
+      );
+      if (match) {
+        const hours = Math.max(
+          1,
+          Math.round((Date.now() - new Date(match.createdAt).getTime()) / 3600000)
+        );
+        setDupNotice(
+          `Heads up: campaign “${match.name}” with ${rowCount.toLocaleString(
+            "en-IN"
+          )} rows was created ${hours}h ago — this may be the same file. ` +
+            `You can continue anyway; already-messaged orders are skipped automatically.`
+        );
+      }
+    } catch {
+      // Best-effort check only — never block the upload flow on it.
+    }
+  }
 
   function loadParsed(hdrs: string[], data: RawRow[]) {
     const clean = hdrs.map((h) => String(h ?? "").trim()).filter(Boolean);
@@ -51,6 +97,23 @@ export default function NewCampaignPage() {
     setNameCol(guessColumn(clean, ["name", "buyer", "customer"]));
     setCreated(null);
     setApiError("");
+    void checkRecentDuplicate(data.length);
+  }
+
+  function resetFile() {
+    setFileName("");
+    setHeaders([]);
+    setRows([]);
+    setPhoneCol("");
+    setOrderCol("");
+    setNameCol("");
+    setParseError("");
+    setCreated(null);
+    setApiError("");
+    setDupNotice("");
+    // Clear the native input too, or re-selecting the same file won't
+    // fire onChange again.
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   async function onFile(file: File) {
@@ -180,13 +243,27 @@ export default function NewCampaignPage() {
             Choose Excel / CSV file
           </button>
           {fileName && (
-            <span className="ml-3 text-sm text-ink-muted-48">
-              {fileName} · {rows.length.toLocaleString("en-IN")} rows
-            </span>
+            <>
+              <span className="ml-3 text-sm text-ink-muted-48">
+                {fileName} · {rows.length.toLocaleString("en-IN")} rows
+              </span>
+              <button
+                type="button"
+                onClick={resetFile}
+                className="press ml-3 text-sm text-[#d70015] cursor-pointer"
+              >
+                ✕ Remove
+              </button>
+            </>
           )}
         </div>
         {parseError && (
           <p className="mt-3 text-sm text-[#d70015]">{parseError}</p>
+        )}
+        {dupNotice && (
+          <p className="mt-3 text-sm bg-[#fff6e5] border border-[#f0d9a8] text-[#8a6100] rounded-md px-4 py-3">
+            {dupNotice}
+          </p>
         )}
       </section>
 
@@ -248,6 +325,38 @@ export default function NewCampaignPage() {
                   (invalid phone or missing order ID)
                 </span>
               )}
+            </div>
+          )}
+
+          {/* Preview of the mapped result so a wrong column choice is
+              obvious before any campaign is created. */}
+          {phoneCol && orderCol && mapped.valid.length > 0 && (
+            <div className="mt-4 border border-hairline rounded-md overflow-hidden">
+              <div className="px-4 py-2 bg-parchment text-xs font-semibold text-ink-muted-80">
+                Preview — first {Math.min(3, mapped.valid.length)} recipients
+                as they will be sent
+              </div>
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-ink-muted-48 border-b border-divider-soft text-xs">
+                    <th className="px-4 py-2 font-semibold">Phone</th>
+                    <th className="px-4 py-2 font-semibold">Order ID</th>
+                    <th className="px-4 py-2 font-semibold">Customer name</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mapped.valid.slice(0, 3).map((r, i) => (
+                    <tr
+                      key={i}
+                      className="border-b border-divider-soft last:border-0"
+                    >
+                      <td className="px-4 py-2 tabular-nums">{r.phone}</td>
+                      <td className="px-4 py-2">{r.orderId}</td>
+                      <td className="px-4 py-2">{r.customerName || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
