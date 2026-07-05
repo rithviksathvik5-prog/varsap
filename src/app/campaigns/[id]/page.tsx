@@ -57,6 +57,8 @@ export default function CampaignDetailPage({
   const [log, setLog] = useState<MessageDto[]>([]);
   const [error, setError] = useState("");
   const [showFailedOnly, setShowFailedOnly] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -112,6 +114,23 @@ export default function CampaignDetailPage({
     ? log.filter((m) => m.status === "failed")
     : log;
 
+  async function retryFailed() {
+    setRetrying(true);
+    setRetryError("");
+    try {
+      const res = await fetch(`/api/campaigns/${id}/retry`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      await refresh();
+    } catch (e) {
+      setRetryError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1024px] px-5 py-12">
       <Link href="/" className="text-primary text-sm">
@@ -164,20 +183,37 @@ export default function CampaignDetailPage({
           <span className="text-[21px] font-semibold">Message log</span>
           <div className="flex items-center gap-4">
             {counts.failed > 0 && (
-              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showFailedOnly}
-                  onChange={(e) => setShowFailedOnly(e.target.checked)}
-                />
-                Show only failed ({counts.failed})
-              </label>
+              <>
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showFailedOnly}
+                    onChange={(e) => setShowFailedOnly(e.target.checked)}
+                  />
+                  Show only failed ({counts.failed})
+                </label>
+                <button
+                  type="button"
+                  disabled={retrying}
+                  onClick={retryFailed}
+                  className="press bg-primary text-white rounded-full px-4 py-1.5 text-sm cursor-pointer disabled:opacity-40"
+                >
+                  {retrying
+                    ? "Re-queuing…"
+                    : `Retry ${counts.failed} failed`}
+                </button>
+              </>
             )}
             <span className="text-xs text-ink-muted-48">
               auto-refreshes every 5s
             </span>
           </div>
         </div>
+        {retryError && (
+          <p className="px-6 py-3 text-sm text-[#d70015] border-b border-divider-soft">
+            {retryError}
+          </p>
+        )}
         <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
           <table className="w-full text-left text-sm">
             <thead className="sticky top-0 bg-white">
