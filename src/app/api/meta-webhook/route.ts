@@ -36,17 +36,22 @@ const OPT_OUT_PATTERN = /^\s*(stop|unsubscribe|opt\s*-?\s*out)\b/i;
 export async function POST(request: Request) {
   const rawBody = await request.text();
 
-  // Verify X-Hub-Signature-256 when an app secret is configured.
+  // Verify X-Hub-Signature-256. Fail closed: an unconfigured secret must
+  // reject requests, not silently accept unsigned ones.
   const appSecret = process.env.META_APP_SECRET;
-  if (appSecret) {
-    const header = request.headers.get("x-hub-signature-256") || "";
-    const expected =
-      "sha256=" + createHmac("sha256", appSecret).update(rawBody).digest("hex");
-    const a = Buffer.from(header);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      return new Response("Invalid signature", { status: 403 });
-    }
+  if (!appSecret) {
+    return NextResponse.json(
+      { error: "META_APP_SECRET not configured" },
+      { status: 500 }
+    );
+  }
+  const header = request.headers.get("x-hub-signature-256") || "";
+  const expected =
+    "sha256=" + createHmac("sha256", appSecret).update(rawBody).digest("hex");
+  const a = Buffer.from(header);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    return new Response("Invalid signature", { status: 403 });
   }
 
   let payload: unknown;
