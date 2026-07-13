@@ -18,6 +18,14 @@ interface CreateResult {
   costEstimateInr: number;
 }
 
+// datetime-local floor for the schedule picker, computed once at page
+// load (render must stay pure, so no Date.now() inline in JSX).
+const SCHEDULE_MIN = new Date(
+  Date.now() - new Date().getTimezoneOffset() * 60000
+)
+  .toISOString()
+  .slice(0, 16);
+
 function guessColumn(headers: string[], candidates: string[]): string {
   const lower = headers.map((h) => h.toLowerCase());
   for (const cand of candidates) {
@@ -42,6 +50,9 @@ export default function NewCampaignPage() {
   const [apiError, setApiError] = useState("");
   const [created, setCreated] = useState<CreateResult | null>(null);
   const [dupNotice, setDupNotice] = useState("");
+  const [sendMode, setSendMode] = useState<"now" | "later">("now");
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [schedulePast, setSchedulePast] = useState(false);
 
   /**
    * Heuristic nudge only: if a campaign with the same number of rows was
@@ -187,6 +198,9 @@ export default function NewCampaignPage() {
     }
   }
 
+  const scheduleInvalid =
+    sendMode === "later" && (scheduleAt === "" || schedulePast);
+
   async function dispatch() {
     if (!created) return;
     setBusy("dispatching");
@@ -194,6 +208,14 @@ export default function NewCampaignPage() {
     try {
       const res = await fetch(`/api/campaigns/${created.campaignId}/dispatch`, {
         method: "POST",
+        ...(sendMode === "later"
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                scheduledFor: new Date(scheduleAt).toISOString(),
+              }),
+            }
+          : {}),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -425,15 +447,59 @@ export default function NewCampaignPage() {
           {apiError && (
             <p className="mt-3 text-sm text-[#ff6961]">{apiError}</p>
           )}
+          <div className="mt-5 flex flex-wrap items-center gap-5 text-sm text-[#cccccc]">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="radio"
+                name="sendMode"
+                checked={sendMode === "now"}
+                onChange={() => setSendMode("now")}
+              />
+              Send now
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="radio"
+                name="sendMode"
+                checked={sendMode === "later"}
+                onChange={() => setSendMode("later")}
+              />
+              Schedule for later
+            </label>
+            {sendMode === "later" && (
+              <input
+                type="datetime-local"
+                value={scheduleAt}
+                min={SCHEDULE_MIN}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setScheduleAt(v);
+                  setSchedulePast(
+                    v !== "" && new Date(v).getTime() <= Date.now()
+                  );
+                }}
+                className="bg-white text-black border border-hairline rounded-md px-3 py-2 text-sm"
+              />
+            )}
+          </div>
+          {sendMode === "later" && schedulePast && (
+            <p className="mt-2 text-sm text-[#ff6961]">
+              That time has already passed — pick a future time.
+            </p>
+          )}
           <button
             type="button"
-            disabled={busy !== "" || created.total === 0}
+            disabled={busy !== "" || created.total === 0 || scheduleInvalid}
             onClick={dispatch}
             className="press mt-6 bg-primary text-white rounded-full px-7 py-3.5 text-[18px] font-light cursor-pointer disabled:opacity-40"
           >
             {busy === "dispatching"
-              ? "Handing to queue…"
-              : `Dispatch ${created.total.toLocaleString("en-IN")} messages`}
+              ? sendMode === "later"
+                ? "Scheduling…"
+                : "Handing to queue…"
+              : sendMode === "later"
+                ? `Schedule ${created.total.toLocaleString("en-IN")} messages`
+                : `Dispatch ${created.total.toLocaleString("en-IN")} messages`}
           </button>
           <p className="mt-4 text-xs text-[#7a7a7a]">
             Sending runs in the background at one message per second — you can

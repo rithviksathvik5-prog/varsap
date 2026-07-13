@@ -60,6 +60,28 @@ export async function POST(
     );
   }
 
+  // Optional send-later: a past timestamp silently means "send now",
+  // but a malformed one is a real mistake worth surfacing.
+  const body = await request.json().catch(() => null);
+  let scheduledFor: Date | null = null;
+  if (body?.scheduledFor != null) {
+    const parsed = new Date(body.scheduledFor);
+    if (isNaN(parsed.getTime())) {
+      return NextResponse.json(
+        { error: "Invalid scheduledFor date." },
+        { status: 400 }
+      );
+    }
+    const MAX_AHEAD_MS = 7 * 24 * 60 * 60 * 1000;
+    if (parsed.getTime() - Date.now() > MAX_AHEAD_MS) {
+      return NextResponse.json(
+        { error: "Campaigns can be scheduled at most 7 days ahead." },
+        { status: 400 }
+      );
+    }
+    if (parsed.getTime() > Date.now()) scheduledFor = parsed;
+  }
+
   const pending = await messages
     .find({ campaignId, status: "pending" }, { projection: { _id: 1 } })
     .toArray();
@@ -70,8 +92,12 @@ export async function POST(
   const qstash = new Client({ token: process.env.QSTASH_TOKEN });
   const workerUrl = `${baseUrl}/api/qstash-worker`;
 
-  // One message per second via incremental delays; batched 100 per API
+  // One message per second, anchored either at "now" or at the chosen
+  // schedule time via QStash's absolute notBefore; batched 100 per API
   // call to stay fast on large campaigns.
+  const baseUnix = Math.floor(
+    (scheduledFor ? scheduledFor.getTime() : Date.now()) / 1000
+  );
   const CHUNK = 100;
   for (let offset = 0; offset < pending.length; offset += CHUNK) {
     const chunk = pending.slice(offset, offset + CHUNK);
@@ -79,7 +105,7 @@ export async function POST(
       chunk.map((msg, i) => ({
         url: workerUrl,
         body: { messageId: msg._id.toString() },
-        delay: offset + i,
+        notBefore: baseUnix + offset + i,
         retries: 3,
       }))
     );
@@ -92,7 +118,13 @@ export async function POST(
   );
   await campaigns.updateOne(
     { _id: campaignId },
-    { $set: { status: "running", dispatchedAt: now } }
+    {
+      $set: {
+        status: "running",
+        dispatchedAt: now,
+        ...(scheduledFor ? { scheduledFor } : {}),
+      },
+    }
   );
 
   return NextResponse.json({ queued: pending.length });

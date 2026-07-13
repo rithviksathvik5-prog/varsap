@@ -14,6 +14,7 @@ interface CampaignDto {
   costEstimateInr: number;
   createdAt: string;
   createdBy: string;
+  scheduledFor?: string | null;
 }
 
 interface Counts {
@@ -59,6 +60,8 @@ export default function CampaignDetailPage({
   const [showFailedOnly, setShowFailedOnly] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  // Wall-clock time captured per refresh; render must stay pure.
+  const [now, setNow] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -68,6 +71,7 @@ export default function CampaignDetailPage({
       setCampaign(json.campaign);
       setCounts(json.counts);
       setLog(json.messages);
+      setNow(Date.now());
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -113,6 +117,9 @@ export default function CampaignDetailPage({
   const visibleLog = showFailedOnly
     ? log.filter((m) => m.status === "failed")
     : log;
+  const scheduledFuture =
+    campaign.scheduledFor != null &&
+    new Date(campaign.scheduledFor).getTime() > now;
 
   async function retryFailed() {
     setRetrying(true);
@@ -142,7 +149,12 @@ export default function CampaignDetailPage({
         </h1>
         <div className="text-sm text-ink-muted-48">
           {campaign.status === "running"
-            ? `Sending… ${progress}% processed`
+            ? scheduledFuture
+              ? `Scheduled for ${new Date(campaign.scheduledFor!).toLocaleString(
+                  "en-IN",
+                  { dateStyle: "medium", timeStyle: "short" }
+                )}`
+              : `Sending… ${progress}% processed`
             : campaign.status === "completed"
               ? "Completed"
               : "Draft — not dispatched yet"}
@@ -158,7 +170,7 @@ export default function CampaignDetailPage({
         upload · created by {campaign.createdBy}
       </p>
 
-      {campaign.status === "running" && (
+      {campaign.status === "running" && !scheduledFuture && (
         <div className="mt-6 h-1.5 bg-hairline rounded-full overflow-hidden">
           <div
             className="h-full bg-primary rounded-full transition-all duration-700"

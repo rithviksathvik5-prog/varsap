@@ -20,6 +20,8 @@ export interface Campaign {
   createdBy: string;
   createdAt: Date;
   dispatchedAt?: Date;
+  /** When set, QStash holds delivery until this time (send-later). */
+  scheduledFor?: Date;
   status: CampaignStatus;
   total: number;
   skippedDuplicates: number;
