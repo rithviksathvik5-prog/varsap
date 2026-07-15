@@ -97,10 +97,10 @@ export default function PrivacyPolicyPage() {
             For questions about this policy or to request deletion of your
             data, contact Varistor at{" "}
             <a
-              href="mailto:rkkilari@gmail.com"
+              href="mailto:varsap3000@gmail.com"
               className="text-primary underline"
             >
-              rkkilari@gmail.com
+              varsap3000@gmail.com
             </a>
             .
           </p>
