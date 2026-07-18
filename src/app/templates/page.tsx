@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+
+import { previewText } from "@/lib/templatePreview";
 
 interface TemplateDto {
   id: string;
@@ -8,6 +10,7 @@ interface TemplateDto {
   status: string;
   category: string;
   language: string;
+  bodyText?: string;
 }
 
 const STATUS_PILL: Record<string, { label: string; cls: string }> = {
@@ -29,6 +32,7 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<TemplateDto[]>([]);
   const [listError, setListError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState("");
 
   const [name, setName] = useState("");
   const [bodyText, setBodyText] = useState("");
@@ -194,25 +198,59 @@ export default function TemplatesPage() {
                   <th className="px-6 py-3 font-semibold">Category</th>
                   <th className="px-6 py-3 font-semibold">Language</th>
                   <th className="px-6 py-3 font-semibold">Status</th>
+                  <th className="px-6 py-3 font-semibold">Message</th>
                 </tr>
               </thead>
               <tbody>
                 {templates.map((t) => (
-                  <tr
-                    key={t.id}
-                    className="border-b border-divider-soft last:border-0"
-                  >
-                    <td className="px-6 py-3 font-medium">{t.name}</td>
-                    <td className="px-6 py-3">{t.category}</td>
-                    <td className="px-6 py-3">{t.language}</td>
-                    <td className="px-6 py-3">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${pill(t.status).cls}`}
-                      >
-                        {pill(t.status).label}
-                      </span>
-                    </td>
-                  </tr>
+                  <React.Fragment key={t.id}>
+                    <tr className="border-b border-divider-soft last:border-0">
+                      <td className="px-6 py-3 font-medium">{t.name}</td>
+                      <td className="px-6 py-3">{t.category}</td>
+                      <td className="px-6 py-3">{t.language}</td>
+                      <td className="px-6 py-3">
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${pill(t.status).cls}`}
+                        >
+                          {pill(t.status).label}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedId(expandedId === t.id ? "" : t.id)
+                          }
+                          className="press text-primary text-sm cursor-pointer"
+                        >
+                          {expandedId === t.id ? "Hide" : "View"}
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedId === t.id && (
+                      <tr className="border-b border-divider-soft last:border-0">
+                        <td colSpan={5} className="px-6 py-4 bg-parchment">
+                          {t.bodyText ? (
+                            <>
+                              <div className="max-w-[440px] bg-white border border-hairline rounded-lg rounded-tl-none px-4 py-3 text-sm whitespace-pre-wrap shadow-sm">
+                                {previewText(t.bodyText)}
+                              </div>
+                              <p className="mt-2 text-xs text-ink-muted-48">
+                                Preview with a sample customer name — each
+                                customer sees their own name where the template
+                                says {"{{name}}"}.
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-sm text-ink-muted-48">
+                              Meta didn&apos;t return a message body for this
+                              template.
+                            </p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

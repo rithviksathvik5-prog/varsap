@@ -6,6 +6,8 @@ export interface MetaTemplate {
   status: string; // APPROVED | PENDING | REJECTED | ...
   category: string; // UTILITY | MARKETING | AUTHENTICATION
   language: string;
+  /** The BODY component's text, with {{name}}-style variables intact. */
+  bodyText?: string;
 }
 
 export interface TemplatesResult {
@@ -41,7 +43,7 @@ export async function listTemplates(): Promise<TemplatesResult> {
   let res: Response;
   try {
     res = await fetch(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${config.wabaId}/message_templates?fields=name,status,category,language&limit=100`,
+      `https://graph.facebook.com/${GRAPH_VERSION}/${config.wabaId}/message_templates?fields=name,status,category,language,components&limit=100`,
       { headers: { Authorization: `Bearer ${config.token}` } }
     );
   } catch (e) {
@@ -55,7 +57,16 @@ export async function listTemplates(): Promise<TemplatesResult> {
       error: json?.error?.message || `Meta API HTTP ${res.status}`,
     };
   }
-  return { ok: true, templates: json?.data ?? [] };
+  interface RawTemplate extends MetaTemplate {
+    components?: Array<{ type?: string; text?: string }>;
+  }
+  const templates = ((json?.data ?? []) as RawTemplate[]).map(
+    ({ components, ...t }) => ({
+      ...t,
+      bodyText: components?.find((c) => c.type === "BODY")?.text,
+    })
+  );
+  return { ok: true, templates };
 }
 
 /**

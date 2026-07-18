@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { sanitizePhone } from "@/lib/phone";
+import { previewText } from "@/lib/templatePreview";
 import { COST_PER_MESSAGE_INR, estimateCostInr, formatInr } from "@/lib/cost";
 
 type RawRow = Record<string, unknown>;
@@ -54,7 +55,7 @@ export default function NewCampaignPage() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [schedulePast, setSchedulePast] = useState(false);
   const [approvedTemplates, setApprovedTemplates] = useState<
-    { name: string; category: string }[]
+    { name: string; category: string; bodyText?: string }[]
   >([]);
   const [templateName, setTemplateName] = useState("");
   const [defaultTemplate, setDefaultTemplate] = useState("");
@@ -448,6 +449,16 @@ export default function NewCampaignPage() {
               <span className="block mt-1 text-xs font-normal text-ink-muted-48">
                 Utility templates cost less per message than Marketing ones.
               </span>
+              {(() => {
+                const sel = approvedTemplates.find(
+                  (t) => t.name === templateName
+                );
+                return sel?.bodyText ? (
+                  <span className="block mt-3 font-normal bg-parchment border border-hairline rounded-lg rounded-tl-none px-4 py-3 whitespace-pre-wrap">
+                    {previewText(sel.bodyText)}
+                  </span>
+                ) : null;
+              })()}
             </label>
           )}
           <div className="mt-4 bg-parchment rounded-md p-5">
