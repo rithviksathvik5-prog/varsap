@@ -89,6 +89,10 @@ export async function createTemplate(opts: {
     name: opts.name,
     language: opts.language,
     category: opts.category,
+    // Without this Meta defaults to POSITIONAL ({{1}}), reads {{name}} as
+    // malformed, silently drops the named-param examples and auto-rejects
+    // the submission with INVALID_FORMAT.
+    parameter_format: "NAMED",
     components: [
       {
         type: "BODY",
