@@ -11,7 +11,12 @@ export async function GET() {
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
-  return NextResponse.json({ templates: result.templates });
+  return NextResponse.json({
+    templates: result.templates,
+    // The env-configured template doubles as the campaign default; the
+    // New Campaign picker preselects and labels it.
+    defaultName: process.env.META_TEMPLATE_NAME || "feedback_request",
+  });
 }
 
 export async function POST(request: Request) {

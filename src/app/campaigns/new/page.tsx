@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
@@ -53,6 +53,41 @@ export default function NewCampaignPage() {
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
   const [scheduleAt, setScheduleAt] = useState("");
   const [schedulePast, setSchedulePast] = useState(false);
+  const [approvedTemplates, setApprovedTemplates] = useState<
+    { name: string; category: string }[]
+  >([]);
+  const [templateName, setTemplateName] = useState("");
+  const [defaultTemplate, setDefaultTemplate] = useState("");
+
+  // Approved templates for the picker. If the fetch fails the dropdown
+  // simply doesn't render and the server falls back to its default.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/templates", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const approved = (json.templates || []).filter(
+          (t: { status: string }) => t.status === "APPROVED"
+        );
+        setApprovedTemplates(approved);
+        setDefaultTemplate(json.defaultName || "");
+        const preselect = approved.some(
+          (t: { name: string }) => t.name === json.defaultName
+        )
+          ? json.defaultName
+          : approved[0]?.name ?? "";
+        setTemplateName(preselect);
+      } catch {
+        // Meta unreachable — picker hidden, server default still applies.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Heuristic nudge only: if a campaign with the same number of rows was
@@ -186,7 +221,11 @@ export default function NewCampaignPage() {
       const res = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, rows: mapped.valid }),
+        body: JSON.stringify({
+          name,
+          rows: mapped.valid,
+          ...(templateName ? { templateName } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -387,7 +426,30 @@ export default function NewCampaignPage() {
       {/* Step 3: cost + create */}
       {mapped.valid.length > 0 && !created && (
         <section className="mt-6 bg-white border border-hairline rounded-lg p-6">
-          <h2 className="text-[21px] font-semibold">3. Pre-flight cost check</h2>
+          <h2 className="text-[21px] font-semibold">
+            3. Template &amp; cost check
+          </h2>
+          {approvedTemplates.length > 0 && (
+            <label className="block mt-4 text-sm font-semibold sm:max-w-[380px]">
+              Message template
+              <select
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                className={selectCls + " mt-1 font-normal"}
+              >
+                {approvedTemplates.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name} —{" "}
+                    {t.category === "MARKETING" ? "Marketing" : "Utility"}
+                    {t.name === defaultTemplate ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="block mt-1 text-xs font-normal text-ink-muted-48">
+                Utility templates cost less per message than Marketing ones.
+              </span>
+            </label>
+          )}
           <div className="mt-4 bg-parchment rounded-md p-5">
             <div className="text-[34px] font-semibold">{formatInr(cost)}</div>
             <p className="text-sm text-ink-muted-80 mt-1 tracking-normal">

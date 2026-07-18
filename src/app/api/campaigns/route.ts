@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { MongoBulkWriteError } from "mongodb";
 import { auth, isEmailAllowed } from "@/auth";
+import { listTemplates } from "@/lib/metaTemplates";
 import { getCollections, Campaign, MessageDoc } from "@/lib/db";
 import { sanitizePhone } from "@/lib/phone";
 import { estimateCostInr } from "@/lib/cost";
@@ -31,6 +32,34 @@ export async function POST(request: Request) {
       { error: "Maximum 20,000 rows per campaign." },
       { status: 400 }
     );
+  }
+
+  // Per-campaign template choice. When the client names one, it must be
+  // currently approved on the WABA — an unapproved name would only fail
+  // later, message by message, inside the QStash worker.
+  let templateName = process.env.META_TEMPLATE_NAME || "feedback_request";
+  let templateLang = process.env.META_TEMPLATE_LANG || "en";
+  const requestedTemplate =
+    typeof body?.templateName === "string" ? body.templateName.trim() : "";
+  if (requestedTemplate) {
+    const lookup = await listTemplates();
+    if (!lookup.ok) {
+      return NextResponse.json(
+        { error: `Couldn't verify the template with Meta: ${lookup.error}` },
+        { status: 502 }
+      );
+    }
+    const match = lookup.templates?.find(
+      (t) => t.name === requestedTemplate && t.status === "APPROVED"
+    );
+    if (!match) {
+      return NextResponse.json(
+        { error: `"${requestedTemplate}" is not an approved template.` },
+        { status: 400 }
+      );
+    }
+    templateName = match.name;
+    templateLang = match.language;
   }
 
   const { campaigns, messages, blocklist } = await getCollections();
@@ -99,8 +128,8 @@ export async function POST(request: Request) {
 
   const campaign: Campaign = {
     name,
-    templateName: process.env.META_TEMPLATE_NAME || "feedback_request",
-    templateLang: process.env.META_TEMPLATE_LANG || "en",
+    templateName,
+    templateLang,
     createdBy: session!.user!.email!,
     createdAt: now,
     status: "draft",

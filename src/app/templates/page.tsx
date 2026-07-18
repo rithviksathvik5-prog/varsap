@@ -221,9 +221,9 @@ export default function TemplatesPage() {
       </section>
 
       <p className="mt-6 text-xs text-ink-muted-48">
-        Campaigns currently send the template named in the{" "}
-        <code>META_TEMPLATE_NAME</code> setting. To switch to a newly approved
-        template, update that setting in Vercel and redeploy.
+        Once a template is approved, it can be picked per campaign on the New
+        Campaign page. The <code>META_TEMPLATE_NAME</code> setting is only the
+        preselected default.
       </p>
     </div>
   );
