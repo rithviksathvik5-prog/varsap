@@ -17,6 +17,12 @@ export interface Campaign {
   name: string;
   templateName: string;
   templateLang: string;
+  /**
+   * The template's body variables (e.g. ["name"]). Empty for a
+   * parameterless template. Undefined on legacy campaigns created before
+   * this was recorded — the send path falls back accordingly.
+   */
+  templateVariables?: string[];
   createdBy: string;
   createdAt: Date;
   dispatchedAt?: Date;

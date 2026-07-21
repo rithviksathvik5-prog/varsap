@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { MongoBulkWriteError } from "mongodb";
 import { auth, isEmailAllowed } from "@/auth";
 import { listTemplates } from "@/lib/metaTemplates";
+import { extractVariables } from "@/lib/templatePreview";
 import { getCollections, Campaign, MessageDoc } from "@/lib/db";
 import { sanitizePhone } from "@/lib/phone";
 import { estimateCostInr } from "@/lib/cost";
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
   // later, message by message, inside the QStash worker.
   let templateName = process.env.META_TEMPLATE_NAME || "feedback_request";
   let templateLang = process.env.META_TEMPLATE_LANG || "en";
+  let templateVariables: string[] | undefined;
   const requestedTemplate =
     typeof body?.templateName === "string" ? body.templateName.trim() : "";
   if (requestedTemplate) {
@@ -58,8 +60,24 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    // The app fills only {{name}}. A template using any other variable
+    // can't be personalised and would fail at send time with Meta's
+    // #132000 param-count error, so reject it up front.
+    const vars = extractVariables(match.bodyText || "");
+    const unsupported = vars.filter((v) => v !== "name");
+    if (unsupported.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Template "${requestedTemplate}" uses ${unsupported
+            .map((v) => `{{${v}}}`)
+            .join(", ")}, which this app can't fill. Only {{name}} is supported.`,
+        },
+        { status: 400 }
+      );
+    }
     templateName = match.name;
     templateLang = match.language;
+    templateVariables = vars;
   }
 
   const { campaigns, messages, blocklist } = await getCollections();
@@ -130,6 +148,7 @@ export async function POST(request: Request) {
     name,
     templateName,
     templateLang,
+    ...(templateVariables ? { templateVariables } : {}),
     createdBy: session!.user!.email!,
     createdAt: now,
     status: "draft",

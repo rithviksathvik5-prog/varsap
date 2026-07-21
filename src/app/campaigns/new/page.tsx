@@ -70,16 +70,30 @@ export default function NewCampaignPage() {
         if (!res.ok) return;
         const json = await res.json();
         if (cancelled) return;
-        const approved = (json.templates || []).filter(
+        // Meta can return the same name in multiple languages; keep one
+        // option per name so the <select> has no duplicate keys/values.
+        const approvedRaw = (json.templates || []).filter(
           (t: { status: string }) => t.status === "APPROVED"
+        );
+        const approved = approvedRaw.filter(
+          (t: { name: string }, i: number) =>
+            approvedRaw.findIndex(
+              (o: { name: string }) => o.name === t.name
+            ) === i
         );
         setApprovedTemplates(approved);
         setDefaultTemplate(json.defaultName || "");
-        const preselect = approved.some(
-          (t: { name: string }) => t.name === json.defaultName
-        )
-          ? json.defaultName
-          : approved[0]?.name ?? "";
+        // Prefer the configured default; otherwise the first real
+        // template — never Meta's hello_world sample, which must not be
+        // dispatched to real customers by accident.
+        const preselect =
+          approved.find(
+            (t: { name: string }) => t.name === json.defaultName
+          )?.name ??
+          approved.find((t: { name: string }) => t.name !== "hello_world")
+            ?.name ??
+          approved[0]?.name ??
+          "";
         setTemplateName(preselect);
       } catch {
         // Meta unreachable — picker hidden, server default still applies.
@@ -470,6 +484,14 @@ export default function NewCampaignPage() {
               Duplicates and opted-out customers are removed in the next step
               and will lower this number.
             </p>
+            {approvedTemplates.find((t) => t.name === templateName)
+              ?.category === "MARKETING" && (
+              <p className="mt-2 text-xs text-[#8a6100]">
+                This is a Marketing template — Meta bills marketing
+                conversations at a higher rate than the utility estimate
+                shown above, so the real cost will be higher.
+              </p>
+            )}
           </div>
           {apiError && (
             <p className="mt-3 text-sm text-[#d70015]">{apiError}</p>

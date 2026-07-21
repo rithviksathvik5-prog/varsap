@@ -17,6 +17,14 @@ export async function sendTemplateMessage(opts: {
   customerName: string;
   templateName: string;
   templateLang: string;
+  /**
+   * The template's body variables. When known (campaign created via the
+   * picker), the body parameter is sent only if the template references
+   * {{name}} — so parameterless templates don't trigger Meta's #132000
+   * param-count error. Undefined on legacy campaigns → fall back to the
+   * old assumption (send {{name}} for everything except hello_world).
+   */
+  templateVariables?: string[];
 }): Promise<SendResult> {
   const token = process.env.META_ACCESS_TOKEN;
   const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
@@ -27,6 +35,16 @@ export async function sendTemplateMessage(opts: {
     };
   }
 
+  // Send the {{name}} body parameter only when the template actually uses
+  // it. A mismatch between parameters sent and the template's variables is
+  // Meta error #132000. When the variables are unknown (legacy campaign),
+  // keep the old behavior: hello_world takes none, everything else takes
+  // {{name}}.
+  const expectsName =
+    opts.templateVariables !== undefined
+      ? opts.templateVariables.includes("name")
+      : opts.templateName !== "hello_world";
+
   const body = {
     messaging_product: "whatsapp",
     to: opts.phone.replace(/^\+/, ""),
@@ -34,11 +52,8 @@ export async function sendTemplateMessage(opts: {
     template: {
       name: opts.templateName,
       language: { code: opts.templateLang },
-      // Meta's built-in "hello_world" sample template takes no variables;
-      // sending a body parameter for it triggers a #132000 param-count error.
-      ...(opts.templateName === "hello_world"
-        ? {}
-        : {
+      ...(expectsName
+        ? {
             components: [
               {
                 type: "body",
@@ -51,7 +66,8 @@ export async function sendTemplateMessage(opts: {
                 ],
               },
             ],
-          }),
+          }
+        : {}),
     },
   };
 

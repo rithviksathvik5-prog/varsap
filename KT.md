@@ -69,8 +69,8 @@ sending in the background; the webhook keeps statuses current forever.
 | `META_ACCESS_TOKEN` | Permanent System User token for the WhatsApp API | Meta Business Settings → System Users (regenerate if lost) |
 | `META_PHONE_NUMBER_ID` | ID of the business phone number (`1268747869636661`) | App dashboard → WhatsApp → API Setup |
 | `META_WABA_ID` | WhatsApp Business Account ID (`2277399479758454`) | Same page, under the account name |
-| `META_TEMPLATE_NAME` | Template campaigns send (`feedback_request`) | WhatsApp Manager → Message templates |
-| `META_TEMPLATE_LANG` | Template language code (`en`) | Same |
+| `META_TEMPLATE_NAME` | Default template preselected in the New Campaign picker (`feedback_request`) | WhatsApp Manager → Message templates |
+| `META_TEMPLATE_LANG` | Its language code (`en`) | Same |
 | `META_WEBHOOK_VERIFY_TOKEN` | Shared secret for Meta's webhook handshake | Must match the value in the app dashboard webhook config |
 | `META_APP_SECRET` | Verifies webhook signatures. **If missing, all status updates 500** (learned the hard way) | App dashboard → App settings → Basic → App secret |
 | `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | QStash publish + verify | Upstash console |

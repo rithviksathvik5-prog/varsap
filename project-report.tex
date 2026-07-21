@@ -1,0 +1,306 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{parskip}
+
+% Rupee symbol: prints "Rs." for maximum compiler compatibility.
+% If compiling with XeLaTeX/LuaLaTeX and a suitable font, replace with ₹.
+\newcommand{\rupee}{Rs.\,}
+
+\title{Varsap: A Zero-Cost WhatsApp Feedback Automation Platform\\
+\large Design, Implementation and Production Deployment of a Customer
+Feedback Engine for an Amazon Seller}
+\author{Sathvik Kilari}
+\date{July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report presents Varsap, a full-stack web application that automates
+WhatsApp-based customer feedback collection for Varistor, an Amazon
+marketplace seller. The system ingests Amazon order exports, dispatches
+personalised WhatsApp template messages through Meta's WhatsApp Cloud API,
+and tracks each message through its complete delivery lifecycle
+(sent~$\rightarrow$~delivered~$\rightarrow$~read) in real time. A defining
+engineering constraint was a total infrastructure budget of
+\textbf{\rupee 0 per month}, satisfied by composing free-tier cloud
+services: serverless hosting, a managed document database, and a managed
+message queue. The project covers the complete software lifecycle ---
+requirements, architecture, implementation, production debugging against a
+third-party platform, security hardening, cost engineering, and a formal
+handover to the company, including migration of all platform assets to
+corporate ownership. The system is live in production and has been verified
+end-to-end with real customer traffic.
+\end{abstract}
+
+\section{Introduction and Problem Statement}
+
+Amazon sellers depend on product reviews and buyer feedback, yet the
+marketplace itself offers sellers no direct, high-engagement channel to
+request it. Email requests suffer from low open rates, while WhatsApp ---
+the dominant messaging platform among Indian consumers --- offers open
+rates above 90\%, but is aggressively protected against spam: businesses
+may only initiate conversations using message templates pre-approved by
+Meta, sent via the paid WhatsApp Business (Cloud) API.
+
+The goal of this project was to give Varistor's non-technical staff a
+one-click pipeline from ``here is today's Amazon order export'' to
+``every buyer has received a personalised feedback request on WhatsApp,
+and we can watch delivery and read receipts live'' --- subject to three
+hard requirements:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Zero fixed cost}: no paid infrastructure of any kind; the
+        only permissible spend is Meta's unavoidable per-message fee.
+  \item \textbf{Operable by non-technical employees}: no console access,
+        no configuration files, no developer in the loop for daily use.
+  \item \textbf{Safe by construction}: no customer may ever be messaged
+        twice for the same order, opt-outs must be honoured permanently,
+        and access must be restricted to authorised staff.
+\end{enumerate}
+
+\section{System Architecture}
+
+\subsection{Technology stack}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Layer} & \textbf{Technology} & \textbf{Free-tier role} \\
+\midrule
+Web application & Next.js (App Router, TypeScript) & --- \\
+Hosting \& CI/CD & Vercel & Auto-deploy on git push \\
+Database & MongoDB Atlas (M0) & Campaigns, messages, blocklist \\
+Message queue & Upstash QStash & Paced delivery, retries, scheduling \\
+Messaging & Meta WhatsApp Cloud API & Template send + status webhooks \\
+Authentication & NextAuth + Google OAuth & Domain-restricted SSO \\
+\bottomrule
+\end{tabular}
+\caption{Composition of free-tier services meeting the \rupee 0/month constraint.}
+\end{table}
+
+\subsection{Campaign data flow}
+
+A campaign proceeds through four fully decoupled stages:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Ingest} --- the employee uploads an Excel/CSV export;
+        columns are mapped interactively with a live preview. Rows are
+        validated (phone normalisation, order-ID presence) client-side.
+  \item \textbf{Create} --- the server deduplicates against all prior
+        campaigns using a unique database index on the
+        \emph{(phone, order-ID)} pair, removes blocklisted customers, and
+        presents a pre-flight cost estimate before anything is sent.
+  \item \textbf{Dispatch} --- every message is handed to the QStash queue
+        with a per-message timestamp (one message per second), so sending
+        proceeds serverlessly in the background; the employee may close
+        the browser immediately. Campaigns may also be scheduled for a
+        future time.
+  \item \textbf{Track} --- Meta pushes signed webhook events (sent,
+        delivered, read, failed, and inbound replies) to the application,
+        which updates the dashboard in real time. A customer replying
+        ``STOP'' is inserted into a permanent blocklist and all their
+        in-flight messages are cancelled.
+\end{enumerate}
+
+A key architectural property is that \textbf{no sending logic runs in the
+browser}: the queue drives delivery and the webhook maintains state,
+making the system resilient to the employee's machine, connection, or
+session.
+
+\subsection{Reliability and safety mechanisms}
+
+\begin{itemize}[nosep]
+  \item \emph{Idempotent sending}: queue retries can never double-send; a
+        message is only dispatched from the \texttt{queued} state.
+  \item \emph{Monotonic status lifecycle}: a late ``delivered'' event can
+        never downgrade an already-``read'' message.
+  \item \emph{Dedupe by design}: the unique \emph{(phone, order-ID)} index
+        makes re-uploading the same file harmless --- duplicates are
+        skipped and reported, not resent.
+  \item \emph{Fail-closed webhook security}: every webhook call is
+        HMAC-SHA256 signature-verified against the Meta app secret using
+        constant-time comparison; an unconfigured secret rejects requests
+        rather than silently accepting unsigned ones.
+  \item \emph{Machine-endpoint authentication}: the queue worker verifies
+        QStash request signatures; all human-facing routes require a
+        whitelisted Google login (company domain plus an explicit
+        allowlist).
+\end{itemize}
+
+\section{Feature Set}
+
+\begin{itemize}[nosep]
+  \item Campaign creation from arbitrary Amazon exports (CSV/XLSX) with
+        interactive column mapping and recipient preview.
+  \item Pre-flight cost estimation and post-dedupe final cost display.
+  \item Immediate or scheduled dispatch; safe retry of failed messages only.
+  \item Live per-message dashboard: pending/queued/sent/delivered/read/%
+        failed/opted-out, with failure reasons surfaced from Meta.
+  \item Automatic opt-out (STOP) handling with permanent blocklisting.
+  \item \textbf{In-app template management}: employees create WhatsApp
+        message templates and submit them to Meta for approval from within
+        the application --- no Meta console access needed --- and track
+        approval status live.
+  \item \textbf{Per-campaign template picker}: each campaign selects any
+        approved template from a dropdown, with a WhatsApp-style preview
+        of the exact message (variables filled with sample values) so
+        non-technical staff see precisely what customers will receive.
+  \item Duplicate-upload warning heuristic (same row count within 24h)
+        layered on top of the hard database guarantee.
+\end{itemize}
+
+\section{Production Debugging Case Studies}
+
+Integrating against a large third-party platform produced several
+non-trivial failures whose diagnosis forms a significant part of the
+project's engineering contribution.
+
+\subsection{Case 1: Silent loss of delivery statuses}
+\textbf{Symptom:} messages delivered on phones, but the dashboard froze at
+``sent''. \textbf{Root cause:} the webhook signature secret had never been
+configured in production; the deliberately fail-closed design was
+rejecting every status callback. \textbf{Resolution:} configure the app
+secret and verify with Meta's webhook self-test plus a live inbound
+message. \textbf{Lesson:} fail-closed security is correct, but must be
+paired with observability --- the failure was invisible until inspected at
+the platform logs level.
+
+\subsection{Case 2: Systematic template rejection (\texttt{INVALID\_FORMAT})}
+\textbf{Symptom:} every template submitted through the application was
+instantly rejected by Meta, while seemingly identical templates created
+earlier were approved. \textbf{Investigation:} the Graph API's
+\texttt{rejected\_reason} field, per-template \texttt{components}
+introspection, and controlled resubmission experiments isolated the
+variable. \textbf{Root cause:} Meta's template API defaults to
+\emph{positional} parameters (\texttt{\{\{1\}\}}); the application uses
+\emph{named} parameters (\texttt{\{\{name\}\}}) but did not declare
+\texttt{parameter\_format: NAMED}, so Meta parsed the named variable as
+malformed, silently discarded the required example values, and
+auto-rejected. A one-line fix in the template-creation payload resolved
+it permanently. Secondary findings: Meta auto-rejects near-duplicate
+wording of existing templates, and rejected/deleted template names are
+locked for roughly four weeks. \textbf{Lesson:} when a black-box reviewer
+rejects input, bisect by reproducing via the raw API and diff what the
+platform \emph{stored} against what was \emph{sent}.
+
+\subsection{Case 3: Credential lifetime engineering}
+\textbf{Symptom:} recurring authentication failures --- developer-console
+access tokens expire every 24 hours, and one expiry silently broke local
+development while production continued on a separately-updated token.
+\textbf{Resolution:} replaced ad-hoc tokens with a Meta \emph{system user}
+(machine identity) holding full access to the app and both WhatsApp
+accounts, issuing a non-expiring token verified via the
+\texttt{debug\_token} introspection endpoint. \textbf{Lesson:} humans
+should authenticate interactively; systems should authenticate with
+machine identities whose lifetime is an explicit, audited decision.
+
+\section{Security Model}
+
+\begin{itemize}[nosep]
+  \item All secrets exist only in the hosting platform's environment
+        configuration; the repository contains placeholders only.
+  \item Authentication: Google SSO restricted to the company domain plus
+        an explicit allowlist; every page and API route is gated except
+        the public privacy page and the two signature-verified machine
+        endpoints.
+  \item Webhook integrity: HMAC-SHA256 with constant-time comparison,
+        failing closed.
+  \item Credential hygiene: non-expiring machine token with documented
+        invalidation conditions; a written operational runbook forbids the
+        four actions that would sever credentials (deleting the system
+        user, resetting the app secret, revoking tokens, transferring
+        assets between business portfolios).
+\end{itemize}
+
+\section{Cost Engineering}
+
+Fixed infrastructure cost is \rupee 0/month by construction. Variable cost
+is Meta's per-message fee, which in India differs roughly sevenfold by
+template category: utility ($\approx$\rupee 0.12/message) versus marketing
+($\approx$\rupee 0.88/message). The application makes this visible at the
+point of decision: the template picker labels each template's category,
+the pre-flight estimator prices the campaign before creation, and the
+feedback template is deliberately maintained in the cheaper utility
+category where policy allows. Customer replies are free and open a
+24-hour service window, which the message copy deliberately encourages
+(``just reply to this message'').
+
+\section{Deployment, Handover and Asset Migration}
+
+The system was brought to production on the company's WhatsApp number
+(display name ``Varistor'', quality rating green) with Meta webhooks,
+billing, and a published Meta app. The final project phase was
+organisational rather than technical: transferring ownership so the
+company controls all keys and billing. Deliverables include:
+
+\begin{itemize}[nosep]
+  \item \texttt{KT.md} --- a complete knowledge-transfer document:
+        architecture, environment variables, operating guide for daily
+        staff, troubleshooting matrix, and a handover checklist.
+  \item \texttt{MIGRATION.md} --- a phased runbook for migrating the Meta
+        app (official app transfer), the WhatsApp number (official number
+        migration between business accounts), templates, billing, and
+        machine credentials to the company's own verified Meta Business
+        Manager, with explicit verification gates before each destructive
+        step.
+  \item An end-to-end verification protocol (fresh-order test campaign
+        walking sent~$\rightarrow$~delivered~$\rightarrow$~read) used as
+        the acceptance criterion for every configuration change.
+\end{itemize}
+
+\section{Results}
+
+\begin{itemize}[nosep]
+  \item Live production system, verified end-to-end with real WhatsApp
+        traffic on the company's number, at \rupee 0/month fixed cost.
+  \item Full message-lifecycle tracking with sub-minute latency from
+        WhatsApp read receipt to dashboard update.
+  \item Template management and per-campaign template selection usable by
+        non-technical staff, including live message previews.
+  \item Three production incidents root-caused and permanently fixed, each
+        contributing a documented, transferable lesson.
+  \item Complete, documented corporate handover path with credentials
+        engineered to require zero ongoing maintenance.
+\end{itemize}
+
+\section{Limitations and Future Work}
+
+\begin{itemize}[nosep]
+  \item \textbf{No reply inbox}: inbound customer replies are stored for
+        opt-out detection but have no reading UI; feedback currently
+        arrives on the business phone. An inbox view is the natural next
+        feature.
+  \item \textbf{Category-aware cost estimation}: the estimator uses a
+        single configured rate; wiring it to the selected template's
+        category would price marketing campaigns accurately.
+  \item \textbf{Throughput ceilings}: the free queue tier ($\approx$500
+        messages/day) and Meta's pre-verification conversation limit
+        (250/day, lifted by business verification) bound current scale;
+        both have documented upgrade paths.
+  \item \textbf{Analytics}: read-rate and reply-rate aggregation across
+        campaigns would close the feedback loop on message copy quality.
+\end{itemize}
+
+\section{Learning Outcomes}
+
+The project exercised the full lifecycle of a production integration:
+translating a business need into hard constraints; composing free-tier
+managed services into a reliable architecture; defensive design
+(idempotency, dedupe-by-index, fail-closed verification); black-box
+debugging of a third-party review system via API introspection and
+controlled experiments; credential and identity engineering (machine
+identities, token introspection, documented invalidation conditions);
+cost-aware product design; and the organisational discipline of
+documentation, knowledge transfer, and asset migration with verification
+gates. The overarching lesson: in production systems, the code is the
+smaller half --- the platform's rules, the credentials' lifetimes, and
+the operators' understanding are what keep a system alive.
+
+\end{document}

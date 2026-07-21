@@ -66,6 +66,7 @@ export async function POST(request: Request) {
     customerName: message.customerName,
     templateName: campaign?.templateName || "feedback_request",
     templateLang: campaign?.templateLang || "en",
+    templateVariables: campaign?.templateVariables,
   });
 
   if (result.ok) {

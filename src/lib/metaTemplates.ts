@@ -1,3 +1,5 @@
+import { extractVariables } from "@/lib/templatePreview";
+
 const GRAPH_VERSION = "v21.0";
 
 export interface MetaTemplate {
@@ -89,13 +91,7 @@ export async function createTemplate(opts: {
     };
   }
 
-  const variables = [
-    ...new Set(
-      [...opts.bodyText.matchAll(/\{\{\s*([a-z0-9_]+)\s*\}\}/g)].map(
-        (m) => m[1]
-      )
-    ),
-  ];
+  const variables = extractVariables(opts.bodyText);
   const body = {
     name: opts.name,
     language: opts.language,

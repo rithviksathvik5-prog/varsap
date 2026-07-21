@@ -1,0 +1,159 @@
+VARSAP — PROJECT SUMMARY AND CONTEXT
+(Plain-text summary for report writing)
+
+WHAT THE PROJECT IS
+
+Varsap is a full-stack web application I built for Varistor, an Amazon
+marketplace seller, that automates customer feedback collection over
+WhatsApp. A non-technical employee uploads an Amazon order export
+(CSV/Excel), maps the columns, reviews an estimated cost, and clicks
+dispatch. Every customer then receives a personalised, Meta-approved
+WhatsApp template message (e.g. "Hi {name}, thanks for your recent order —
+we'd love your feedback") from the company's verified WhatsApp business
+number, and the dashboard tracks every message live through
+sent -> delivered -> read.
+
+The defining engineering constraint was a total infrastructure budget of
+zero rupees per month. This was met by composing free-tier cloud services;
+the only money spent is Meta's unavoidable per-message fee.
+
+TECHNOLOGY STACK
+
+- Next.js (App Router, TypeScript) web application
+- Vercel for hosting and automatic deployment on every git push
+- MongoDB Atlas (free M0 tier) for campaigns, messages and the opt-out
+  blocklist
+- Upstash QStash (free tier) as the message queue: paces sending at one
+  message per second, handles retries with backoff, and powers scheduled
+  campaigns
+- Meta WhatsApp Cloud API for sending template messages and receiving
+  delivery-status webhooks
+- Google OAuth (NextAuth) for login, restricted to the company email
+  domain plus an explicit whitelist
+
+HOW A CAMPAIGN FLOWS
+
+1. Upload: employee uploads the order export; columns are mapped
+   interactively with a live preview of the first recipients.
+2. Create: the server removes duplicates using a unique database index on
+   the (phone number, order ID) pair — the same customer can never be
+   messaged twice for the same order, even if the same file is uploaded
+   again — removes opted-out customers, and shows a final cost estimate.
+3. Dispatch: each message is handed to the queue with a timestamp; sending
+   runs serverlessly in the background, so the employee can close the
+   browser. Campaigns can also be scheduled for a future time.
+4. Track: Meta pushes signed webhook events (sent, delivered, read,
+   failed, customer replies) back to the app, which updates the dashboard
+   in real time. A customer replying STOP is permanently blocklisted and
+   their pending messages are cancelled.
+
+KEY FEATURES
+
+- Campaign creation from arbitrary Amazon exports with column mapping
+- Pre-flight cost estimate and post-deduplication final cost
+- Send now or schedule for later; safe retry of failed messages only
+- Live per-message status dashboard with failure reasons
+- Automatic opt-out (STOP) handling with a permanent blocklist
+- In-app template management: employees create WhatsApp templates and
+  submit them to Meta for approval from inside the app (no Meta console
+  needed) and watch approval status live
+- Per-campaign template picker: each campaign chooses any approved
+  template from a dropdown, with a WhatsApp-style preview showing the
+  exact message customers will receive (variables filled with a sample
+  name) — designed for staff with no coding background
+
+RELIABILITY AND SECURITY DESIGN
+
+- Idempotent sending: queue retries can never cause a double-send
+- Status lifecycle is monotonic: a late "delivered" event can never
+  downgrade an already-"read" message
+- Webhook security fails closed: every incoming status event is verified
+  with an HMAC-SHA256 signature (constant-time comparison) against the
+  Meta app secret; unsigned or mis-signed requests are rejected
+- All human-facing pages require a whitelisted Google login; the two
+  machine endpoints (queue worker, Meta webhook) verify cryptographic
+  signatures instead
+- All secrets live only in the hosting platform's environment variables,
+  never in the repository
+
+PRODUCTION DEBUGGING HIGHLIGHTS (real incidents I diagnosed and fixed)
+
+1. Silent loss of delivery statuses: messages were delivered but the
+   dashboard froze at "sent". Root cause: the webhook signature secret was
+   missing in production, so the fail-closed security check was rejecting
+   every status callback. Lesson: fail-closed security needs matching
+   observability.
+
+2. Every template submission auto-rejected by Meta (INVALID_FORMAT):
+   diagnosed by querying Meta's Graph API directly (rejected_reason and
+   stored template components) and running controlled resubmission
+   experiments. Root cause: Meta's API defaults to positional template
+   variables ({{1}}); the app uses named variables ({{name}}) but did not
+   declare parameter_format = NAMED, so Meta silently discarded the
+   required example values and auto-rejected every submission. A one-line
+   fix resolved it permanently. Also discovered: Meta auto-rejects
+   templates whose wording nearly duplicates an existing template, and
+   locks rejected/deleted template names for about four weeks.
+
+3. Credential lifetime engineering: developer-console access tokens expire
+   every 24 hours and kept breaking the integration. Replaced them with a
+   Meta "system user" (machine identity) holding a permanent, non-expiring
+   token, verified through Meta's token-introspection endpoint. Lesson:
+   humans authenticate interactively; production systems need machine
+   identities with explicitly chosen lifetimes.
+
+COST ENGINEERING
+
+Fixed cost: zero per month. Variable cost: Meta charges per message, and
+in India the rate differs about sevenfold by template category — utility
+(order-related) at roughly Rs. 0.12 per message versus marketing at
+roughly Rs. 0.88. The app surfaces this at the point of decision: the
+template picker labels each template's category, and the feedback template
+is kept in the cheaper utility category. Customer replies are free and
+open a 24-hour free-response window, which the message copy deliberately
+encourages ("just reply to this message").
+
+DEPLOYMENT AND HANDOVER
+
+The system is live in production on the company's verified WhatsApp number
+and has been verified end-to-end with real traffic: a test campaign walked
+sent -> delivered -> read on the dashboard within seconds of the message
+being read on a phone. The final phase was organisational: a complete
+knowledge-transfer document (KT.md) covering architecture, operations for
+non-technical staff, and troubleshooting; and a phased migration runbook
+(MIGRATION.md) for transferring the Meta app, WhatsApp number, templates,
+billing and credentials to the company's own Meta Business Manager, with
+verification gates before every irreversible step.
+
+RESULTS
+
+- Live production system at zero fixed cost, operated by non-technical
+  staff
+- Full message-lifecycle tracking with sub-minute latency
+- Three production incidents root-caused and permanently fixed
+- Complete corporate handover path with maintenance-free credentials
+
+LIMITATIONS AND FUTURE WORK
+
+- Customer replies are stored (for opt-out detection) but there is no
+  inbox UI yet; feedback is currently read on the business phone
+- The cost estimator uses a single rate; making it category-aware would
+  price marketing campaigns accurately
+- Free-tier ceilings: roughly 500 messages/day (queue) and Meta's
+  250-conversations/day limit until business verification completes; both
+  have documented upgrade paths
+- Cross-campaign analytics (read rates, reply rates) would close the loop
+  on message quality
+
+LEARNING OUTCOMES
+
+Translating a business need into hard constraints; composing free-tier
+managed services into a reliable serverless architecture; defensive design
+(idempotency, deduplication by unique index, fail-closed verification);
+black-box debugging of a third-party review system through API
+introspection and controlled experiments; credential and identity
+engineering; cost-aware product design; and the discipline of
+documentation, knowledge transfer and verified migration. The core lesson:
+in production systems the code is the smaller half — the platform's rules,
+the credentials' lifetimes and the operators' understanding keep the
+system alive.
